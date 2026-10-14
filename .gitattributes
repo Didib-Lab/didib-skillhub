@@ -1,0 +1,17 @@
+# Normalise line endings so a skill written on Windows validates on Linux CI.
+* text=auto eol=lf
+
+# Batch and PowerShell files keep CRLF for Windows tooling.
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary assets are never line-ending converted.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.pdf binary
+*.zip binary
+
+# Generated from skills/ — collapse these in diffs and review output.
+skills.json linguist-generated=true

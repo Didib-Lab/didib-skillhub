@@ -1,0 +1,52 @@
+name: Report a broken skill
+description: An existing skill fails validation, misbehaves, or is out of date.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: input
+    id: skill
+    attributes:
+      label: Which skill?
+      description: The `name` from its frontmatter.
+      placeholder: conventional-commits
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened instead?
+      description: Paste the exact output or error text, not a paraphrase.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: How can we reproduce it?
+      description: |
+        Include the prompt or command you used, the agent runtime and version,
+        and your operating system.
+      placeholder: |
+        1. Install with `./scripts/install.sh install conventional-commits`
+        2. Ask the agent: "..."
+        3. Observe: ...
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I ran `python scripts/validate_skills.py` and it passed.
+          required: false
+        - label: I am reporting a security problem through the advisory form instead.
+          required: false

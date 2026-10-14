@@ -1,0 +1,51 @@
+name: build catalog
+
+# Keeps the README skill table and the machine-readable skills.json in sync with
+# the contents of skills/. Contributors normally run the generator themselves;
+# this workflow is the safety net for pull requests merged through the web UI.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'skills/**'
+      - 'scripts/build_catalog.py'
+      - 'scripts/validate_skills.py'
+      - '.github/workflows/catalog.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: catalog-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  catalog:
+    name: Regenerate catalog
+    runs-on: ubuntu-latest
+    if: ${{ !contains(github.event.head_commit.message, '[skip catalog]') }}
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Regenerate README catalog and skills.json
+        run: python scripts/build_catalog.py
+
+      - name: Commit the result when it changed
+        run: |
+          if git diff --quiet -- README.md skills.json; then
+            echo "catalog already in sync"
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md skills.json
+          git commit -m "chore(catalog): regenerate skill catalog [skip catalog]"
+          git push

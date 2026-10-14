@@ -1,0 +1,72 @@
+name: validate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  skills:
+    name: Validate skills
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Validate every skill
+        run: python scripts/validate_skills.py
+
+      - name: Run the validator's own self-tests
+        run: python tools/selftest_validator.py
+
+      - name: Check the README catalog is up to date
+        run: python scripts/build_catalog.py --check
+
+      - name: Lint the repository's own workflow and scripts
+        run: |
+          python -m compileall -q scripts skills
+
+  installer:
+    name: Smoke-test the installer
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Syntax-check the shell installer
+        run: bash -n scripts/install.sh
+
+      - name: Smoke-test the shipped skill scripts
+        run: |
+          set -euo pipefail
+          linter=skills/conventional-commits/scripts/commit_lint.py
+          python "$linter" --message "feat(api): add the v2 token endpoint"
+          if python "$linter" --message "update dependencies"; then
+            echo "linter accepted an invalid message" >&2
+            exit 1
+          fi
+
+      - name: Install every skill from the working tree
+        run: |
+          set -euo pipefail
+          dest="$(mktemp -d)"
+          for skill in skills/*/; do
+            name="$(basename "$skill")"
+            cp -R "$skill" "$dest/$name"
+            test -f "$dest/$name/SKILL.md"
+          done
+          echo "installed $(ls -1 "$dest" | wc -l) skill(s) into $dest"

@@ -1,0 +1,67 @@
+name: Propose a new skill
+description: Suggest a skill you would like someone to build, or that you plan to build.
+title: "[Skill] "
+labels: ["new-skill"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this issue when you want a skill to exist but are not opening a pull
+        request yet. If you already wrote the skill, skip this and open a PR —
+        see [CONTRIBUTING.md](../blob/main/CONTRIBUTING.md).
+
+  - type: input
+    id: name
+    attributes:
+      label: Proposed skill name
+      description: Kebab-case, matching the directory name you would create.
+      placeholder: pdf-table-extract
+    validations:
+      required: true
+
+  - type: textarea
+    id: does
+    attributes:
+      label: What should the skill do?
+      description: Two or three sentences. Be concrete about the output it produces.
+    validations:
+      required: true
+
+  - type: textarea
+    id: trigger
+    attributes:
+      label: When should an agent reach for it?
+      description: |
+        The phrases a user would say that should activate this skill. This
+        becomes the "Use when ..." clause of the description.
+      placeholder: |
+        "extract the tables from this datasheet"
+        "turn this PDF into a CSV"
+    validations:
+      required: true
+
+  - type: textarea
+    id: tools
+    attributes:
+      label: What does it need to run?
+      description: |
+        CLI tools, API keys, network access, or nothing at all. Skills that
+        need credentials should say how a user supplies them.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: willing
+    attributes:
+      label: Are you planning to write it?
+      options:
+        - label: I intend to open a pull request for this skill.
+        - label: I am only requesting it and will not write it.
+
+  - type: checkboxes
+    id: ack
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing skills and this is not a duplicate.
+          required: true

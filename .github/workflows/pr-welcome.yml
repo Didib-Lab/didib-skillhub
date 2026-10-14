@@ -1,0 +1,39 @@
+name: Notify on new skill pull requests
+
+on:
+  pull_request_target:
+    types: [opened]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  comment:
+    name: Welcome and set expectations
+    runs-on: ubuntu-latest
+    if: ${{ github.event.pull_request.user.login != 'github-actions[bot]' }}
+    steps:
+      - name: Post the review checklist as a comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = [
+              'Thanks for contributing! A maintainer will review this shortly.',
+              '',
+              'While you wait, the checks that most often fail are:',
+              '',
+              '1. **Directory and name must match** — `skills/foo-bar/SKILL.md` with `name: foo-bar`.',
+              '2. **Description must say when to use the skill** — include a "Use when ..." clause.',
+              '3. **README catalog must be regenerated** — run `python scripts/build_catalog.py` and commit the result.',
+              '4. **No secrets** — search the diff for tokens before pushing.',
+              '',
+              'Run `python scripts/validate_skills.py` locally to catch all of these at once.',
+              'See [CONTRIBUTING.md](../blob/main/CONTRIBUTING.md) for the full checklist.',
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body,
+            });

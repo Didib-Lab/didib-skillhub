@@ -1,0 +1,14 @@
+# These templates are shown in the GitHub "New issue" picker.
+
+blank_issues_enabled: false
+
+contact_links:
+  - name: Submit a skill as a pull request
+    url: https://github.com/Didib-Lab/didib-skillhub/blob/main/CONTRIBUTING.md
+    about: The fastest path — add skills/<name>/SKILL.md and open a PR.
+  - name: Read the skill format reference
+    url: https://github.com/Didib-Lab/didib-skillhub/blob/main/docs/skill-format.md
+    about: Frontmatter fields, the description rule, and how the loader finds skills.
+  - name: Report a security issue
+    url: https://github.com/Didib-Lab/didib-skillhub/security/advisories/new
+    about: Please do not open a public issue for security problems.

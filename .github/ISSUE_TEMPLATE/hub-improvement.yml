@@ -1,0 +1,33 @@
+name: Improve the hub itself
+description: Project docs, CI, the installer, the validator, or governance.
+title: "[Hub] "
+labels: ["hub"]
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of the hub?
+      options:
+        - README or docs
+        - Installer (scripts/install.sh, scripts/install.ps1)
+        - Validator or catalog generator
+        - CI workflows
+        - Contribution process or governance
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is wrong or missing?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you change?
+      description: If you have a concrete patch in mind, open a PR instead.
+    validations:
+      required: false

@@ -1,0 +1,40 @@
+{
+  "name": "DDB Skillhub",
+  "repository": "Didib-Lab/didib-skillhub",
+  "skills": [
+    {
+      "name": "conventional-commits",
+      "description": "Write, review, and validate Conventional Commits messages so changelogs and semantic releases can be generated automatically. Use when the user asks for a commit message, asks to commit staged changes, wants a PR squash title, needs to fix a bad commit message, or when a repo enforces commitlint / semantic-release conventions.",
+      "path": "skills/conventional-commits",
+      "version": "1.0.0",
+      "license": "MIT",
+      "author": "DDB Skillhub",
+      "tags": [
+        "git",
+        "release",
+        "changelog"
+      ],
+      "files": [
+        "SKILL.md",
+        "references/examples.md",
+        "references/spec.md",
+        "scripts/__pycache__/commit_lint.cpython-312.pyc",
+        "scripts/commit_lint.py"
+      ]
+    },
+    {
+      "name": "hello-world",
+      "description": "Minimal reference skill that demonstrates the required SKILL.md format for the DDB Skillhub. Use when a contributor wants to see the smallest valid skill, or when verifying that the skill loader picks up installed skills.",
+      "path": "skills/hello-world",
+      "version": "1.0.0",
+      "license": "MIT",
+      "author": "DDB Skillhub",
+      "tags": [
+        "example"
+      ],
+      "files": [
+        "SKILL.md"
+      ]
+    }
+  ]
+}
