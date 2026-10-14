@@ -56,16 +56,40 @@ function Get-RemoteNames {
 
 function Get-RemoteDescription {
     param([string]$Name)
-    $uri = "https://raw.githubusercontent.com/$RepoSlug/$Ref/skills/$Name/SKILL.md"
+
+    # The API is used rather than raw.githubusercontent.com because the raw host
+    # sits behind a CDN that keeps serving a stale SKILL.md for several minutes
+    # after a release, which would leave a freshly published skill looking
+    # undescribed. The API has no such lag and needs no authentication here.
+    $metadataUri = "https://api.github.com/repos/$RepoSlug/contents/skills/$Name/SKILL.md?ref=$Ref"
+    $headers = @{ 'User-Agent' = 'ddb-skillhub' }
+    $text = $null
+
     try {
-        $text = (Invoke-WebRequest -Uri $uri -Headers @{ 'User-Agent' = 'ddb-skillhub' }).Content
+        $document = Invoke-RestMethod -Uri $metadataUri -Headers $headers -TimeoutSec 20
     } catch {
+        # Rate limited, offline, or the skill has no SKILL.md.
         return '(description unavailable)'
     }
-    $match = [regex]::Match($text, '(?m)^description:\s*(.+)$')
+
+    if ($document -is [string]) {
+        $text = $document
+    } elseif ($document.content) {
+        try {
+            $text = [System.Text.Encoding]::UTF8.GetString(
+                [Convert]::FromBase64String(($document.content -replace '\s', ''))
+            )
+        } catch {
+            $text = $null
+        }
+    }
+
+    if (-not $text) { return '(description unavailable)' }
+
+    $match = [regex]::Match($text, '(?m)^description:[ \t]*(.+?)[ \t]*$')
     if ($match.Success) {
         $value = $match.Groups[1].Value.Trim()
-        if ($value.Length -gt 100) { $value = $value.Substring(0, 100) + '...' }
+        if ($value.Length -gt 100) { $value = $value.Substring(0, 100).TrimEnd() + '...' }
         return $value
     }
     return '(no description)'
