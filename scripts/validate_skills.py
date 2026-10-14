@@ -84,6 +84,19 @@ def mask(match: re.Match[str]) -> str:
     return f"{match.group(0)[:4]}…{len(text)} chars"
 
 
+def is_ignored(relative: Path) -> bool:
+    """True for paths that are build output or tooling state, never content.
+
+    These must not reach the catalog: running ``compileall`` or a test suite
+    inside a skill creates ``__pycache__`` directories, and listing them as
+    skill files makes the generated index depend on whether anyone happened to
+    run Python that day.
+    """
+    return any(
+        part in FORBIDDEN_DIRS or part.startswith(".") for part in relative.parts
+    )
+
+
 # --------------------------------------------------------------------------
 # Minimal frontmatter parser
 # --------------------------------------------------------------------------
@@ -385,6 +398,8 @@ def validate_skill(skill_dir: Path, report: Report, seen_names: dict[str, str]) 
     for script in list(skill_dir.glob("scripts/**/*.py")) + list(
         skill_dir.glob("scripts/**/*.sh")
     ):
+        if is_ignored(script.relative_to(skill_dir)):
+            continue
         try:
             script.read_bytes().decode("utf-8")
         except (OSError, UnicodeDecodeError):
@@ -401,7 +416,7 @@ def validate_skill(skill_dir: Path, report: Report, seen_names: dict[str, str]) 
         "files": sorted(
             str(p.relative_to(skill_dir)).replace("\\", "/")
             for p in skill_dir.rglob("*")
-            if p.is_file()
+            if p.is_file() and not is_ignored(p.relative_to(skill_dir))
         ),
     }
 

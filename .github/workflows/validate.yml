@@ -9,6 +9,11 @@ on:
 permissions:
   contents: read
 
+env:
+  # Keep __pycache__ out of the working tree: the catalog generator enumerates
+  # the files inside a skill, and bytecode must never appear in that list.
+  PYTHONDONTWRITEBYTECODE: '1'
+
 jobs:
   skills:
     name: Validate skills
@@ -31,9 +36,10 @@ jobs:
       - name: Check the README catalog is up to date
         run: python scripts/build_catalog.py --check
 
-      - name: Lint the repository's own workflow and scripts
+      - name: Compile-check every Python file
         run: |
-          python -m compileall -q scripts skills
+          python -m compileall -q -f -b scripts skills tools
+          find scripts skills tools -name '*.pyc' -delete
 
   installer:
     name: Smoke-test the installer

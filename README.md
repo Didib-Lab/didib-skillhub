@@ -158,14 +158,56 @@ time the skill triggers, but reference files only when needed.
 │   ├── install.sh           macOS / Linux installer
 │   └── install.ps1          Windows installer
 ├── tools/
-│   ├── selftest_validator.py  tests the validator against broken skills
-│   └── create-repo.ps1        one-shot bootstrap for the GitHub repository
+│   ├── selftest_validator.py      tests the validator against broken skills
+│   ├── create-repo.ps1            one-shot bootstrap for the GitHub repository
+│   ├── push-via-api.ps1           publish when git's transport is blocked
+│   └── diagnose-git-transport.ps1 explains a failing clone, fetch, or push
 ├── docs/skill-format.md     frontmatter and layout reference
 ├── .github/workflows/       validation, catalog generation, PR automation
 ├── CONTRIBUTING.md
 ├── CODE_OF_CONDUCT.md
 └── SECURITY.md
 ```
+
+## Troubleshooting
+
+### `git push` cannot connect, but `gh` works
+
+Some networks allow GitHub's API through one TLS implementation and block
+another. The symptom is a bare connection failure from git:
+
+```
+fatal: unable to access 'https://github.com/...': Failed to connect to
+github.com port 443 after 21179 ms: Could not connect to server
+```
+
+Confirm which layer is broken:
+
+```powershell
+./tools/diagnose-git-transport.ps1
+```
+
+It probes DNS, raw TCP, a TLS handshake, the .NET HTTP stack, curl, and git in
+turn. If DNS, TCP, and HTTPS pass while git fails, the network is fine and only
+git's transport is affected. Publish through the API instead — the result is an
+ordinary commit that clones and pulls normally:
+
+```powershell
+./tools/push-via-api.ps1 -Repo Didib-Lab/didib-skillhub -Branch main -DryRun
+./tools/push-via-api.ps1 -Repo Didib-Lab/didib-skillhub -Branch main
+```
+
+### Validation fails with `unexpected file`
+
+A skill directory may only contain `SKILL.md` plus `references/`, `scripts/`,
+`assets/`, `agents/`, and `evals/` (optionally with a skill-local `README.md`,
+`LICENSE`, or `skill.json`). Move anything else into one of those directories.
+
+### The catalog check fails after committing
+
+Run `python scripts/build_catalog.py` and commit the regenerated `README.md` and
+`skills.json`. CI fails on a stale catalog on purpose, so the README table can
+never disagree with what is actually in `skills/`.
 
 ## Governance
 

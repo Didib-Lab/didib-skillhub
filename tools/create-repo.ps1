@@ -32,11 +32,48 @@ param(
     [string[]]$Topics = @('agent-skills', 'skills', 'ai-agents', 'skillhub', 'awesome-list')
 )
 
-$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = 'Continue'
 $repo = "$Owner/$RepoName"
 
 function Write-Step { param([string]$Message) Write-Host "==> $Message" -ForegroundColor Cyan }
-function Die { param([string]$Message) Write-Error $Message; exit 1 }
+function Write-Detail { param([string]$Message) Write-Host "    $Message" }
+function Die { param([string]$Message) [Console]::Error.WriteLine("error: $Message"); exit 1 }
+
+# Start-Process joins -ArgumentList with spaces and performs no quoting of its
+# own, so arguments containing spaces must be quoted here or the child process
+# receives them as separate arguments.
+function ConvertTo-ArgumentString {
+    param([string[]]$Arguments)
+    $quoted = foreach ($argument in $Arguments) {
+        if ($argument -match '[\s"]') {
+            '"' + ($argument -replace '(\\*)"', '$1$1\"' -replace '(\\+)$', '$1$1') + '"'
+        } else {
+            $argument
+        }
+    }
+    return ($quoted -join ' ')
+}
+
+# Runs a command and captures its stdout and exit code. gh writes diagnostics to
+# stderr for the expected "does not exist" cases, and under
+# $ErrorActionPreference = 'Stop' that would abort the script, so native calls
+# are made through Start-Process and judged by their exit code instead.
+function Invoke-Capture {
+    param([string]$File, [string[]]$Arguments)
+    $out = Join-Path ([System.IO.Path]::GetTempPath()) ("ghout-" + [guid]::NewGuid().ToString('N'))
+    $err = "$out.err"
+    $process = Start-Process -FilePath $File -ArgumentList (ConvertTo-ArgumentString $Arguments) `
+        -NoNewWindow -Wait -PassThru `
+        -RedirectStandardOutput $out -RedirectStandardError $err
+    $stdout = if (Test-Path $out) { (Get-Content $out -Raw) } else { '' }
+    $stderr = if (Test-Path $err) { (Get-Content $err -Raw) } else { '' }
+    Remove-Item $out, $err -Force -ErrorAction SilentlyContinue
+    return [pscustomobject]@{
+        ExitCode = $process.ExitCode
+        StdOut   = "$stdout".Trim()
+        StdErr   = "$stderr".Trim()
+    }
+}
 
 # --- Preconditions ---------------------------------------------------------
 
@@ -45,44 +82,46 @@ if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
     Die 'the GitHub CLI (gh) is not installed; see https://cli.github.com'
 }
 
-gh auth status 2>&1 | Out-Null
-if ($LASTEXITCODE -ne 0) { Die "gh is not authenticated; run 'gh auth login'" }
-
-Write-Step "Checking that the owner '$Owner' is reachable"
-$ownerType = gh api "/users/$Owner" --jq '.type' 2>$null
-if ($LASTEXITCODE -ne 0) {
-    Die "cannot resolve '$Owner'. If this is a new organization, create it first at https://github.com/organizations/plan"
+if ((Invoke-Capture gh @('auth', 'status')).ExitCode -ne 0) {
+    Die "gh is not authenticated; run 'gh auth login'"
 }
 
+Write-Step "Checking that the owner '$Owner' is reachable"
+$ownerProbe = Invoke-Capture gh @('api', "/users/$Owner", '--jq', '.type')
+if ($ownerProbe.ExitCode -ne 0) {
+    Die "cannot resolve '$Owner'. If this is a new organization, create it first at https://github.com/organizations/plan"
+}
+$ownerType = $ownerProbe.StdOut
+
 if ($ownerType -eq 'Organization') {
-    $canCreate = gh api "/orgs/$Owner" --jq '.login' 2>$null
-    if ($LASTEXITCODE -ne 0) {
+    if ((Invoke-Capture gh @('api', "/orgs/$Owner", '--jq', '.login')).ExitCode -ne 0) {
         Die "no access to the organization '$Owner'. Check that you are a member with permission to create repositories."
     }
-    Write-Host "    owner is an organization"
+    Write-Detail 'owner is an organization'
 } else {
-    Write-Host "    owner is a user account"
+    Write-Detail 'owner is a user account'
 }
 
 Write-Step "Checking whether $repo already exists"
-gh repo view $repo 2>&1 | Out-Null
-if ($LASTEXITCODE -eq 0) {
+if ((Invoke-Capture gh @('repo', 'view', $repo)).ExitCode -eq 0) {
     Die "$repo already exists. To push into it, run: git remote add origin https://github.com/$repo.git; git push -u origin $Branch"
 }
 
 # --- Create and push -------------------------------------------------------
 
 Write-Step "Creating $repo as a public repository"
-gh repo create $repo --public --description $Description
-if ($LASTEXITCODE -ne 0) { Die "repository creation failed" }
-
-Write-Step "Setting topics"
-foreach ($topic in $Topics) {
-    gh repo edit $repo --add-topic $topic 2>&1 | Out-Null
+$create = Invoke-Capture gh @('repo', 'create', $repo, '--public', '--description', $Description)
+if ($create.ExitCode -ne 0) {
+    Die "repository creation failed: $($create.StdErr)"
 }
 
-Write-Step "Configuring the remote"
-$existing = git remote 2>$null
+Write-Step 'Setting topics'
+foreach ($topic in $Topics) {
+    Invoke-Capture gh @('repo', 'edit', $repo, '--add-topic', $topic) | Out-Null
+}
+
+Write-Step 'Configuring the remote'
+$existing = @(git remote 2>$null)
 if ($existing -contains 'origin') {
     git remote set-url origin "https://github.com/$repo.git"
 } else {
@@ -91,7 +130,7 @@ if ($existing -contains 'origin') {
 
 Write-Step "Pushing $Branch"
 git push -u origin $Branch
-if ($LASTEXITCODE -ne 0) { Die "push failed" }
+if ($LASTEXITCODE -ne 0) { Die 'push failed' }
 
 # --- Report ----------------------------------------------------------------
 

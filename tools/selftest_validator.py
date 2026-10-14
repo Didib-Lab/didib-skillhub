@@ -8,6 +8,7 @@ Not part of the repository's CI; run it by hand when changing validation logic:
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 import sys
@@ -198,6 +199,38 @@ def main() -> int:
         print(f"{'PASS' if ok else 'FAIL'}  duplicate names rejected")
         if not ok:
             failures.append(f"duplicate names\n    got exit {code}\n{output}")
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+    # Build output inside a skill must not reach the catalog, or the generated
+    # index would depend on whether anyone happened to run Python that day.
+    root = Path(tempfile.mkdtemp(prefix="skillhub-selftest-"))
+    try:
+        skill(root, "cachey", GOOD.format(name="cachey"), {"scripts/helper.py": "print('hi')\n"})
+        cache = root / "skills" / "cachey" / "scripts" / "__pycache__"
+        cache.mkdir(parents=True, exist_ok=True)
+        (cache / "helper.cpython-312.pyc").write_bytes(b"\x00\x01\x02")
+
+        process = subprocess.run(
+            [sys.executable, str(REPO_ROOT / "scripts" / "build_catalog.py"),
+             "--repo-root", str(root), "--json"],
+            capture_output=True, text=True, encoding="utf-8",
+        )
+        listed: list[str] = []
+        if process.returncode == 0:
+            index = json.loads(process.stdout)
+            for entry in index.get("skills", []):
+                listed.extend(entry.get("files", []))
+
+        leaked = [name for name in listed if "__pycache__" in name or name.endswith(".pyc")]
+        ok = not leaked and "scripts/helper.py" in listed
+        print(f"{'PASS' if ok else 'FAIL'}  build output stays out of the catalog")
+        if not ok:
+            failures.append(
+                "build output exclusion\n"
+                f"    listed files: {listed}\n"
+                f"    exit {process.returncode}\n{process.stdout}{process.stderr}"
+            )
     finally:
         shutil.rmtree(root, ignore_errors=True)
 
