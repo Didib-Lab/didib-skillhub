@@ -124,7 +124,11 @@ On Windows, `xcopy /E /I didib-skillhub\skills\conventional-commits "%USERPROFIL
    check. A maintainer reviews for quality and safety, then merges.
 
 The full rules are in [CONTRIBUTING.md](CONTRIBUTING.md); the format reference
-is in [docs/skill-format.md](docs/skill-format.md). New to this? Copy
+is in [docs/skill-format.md](docs/skill-format.md). A step-by-step walkthrough,
+including how organization membership works and what to do when git cannot
+reach GitHub, is in
+[docs/collaborator-guide.zh-CN.md](docs/collaborator-guide.zh-CN.md)
+(中文). New to this? Copy
 [`skills/hello-world`](skills/hello-world) as a minimal skeleton or
 [`skills/conventional-commits`](skills/conventional-commits) as a fuller
 example with references and scripts.
