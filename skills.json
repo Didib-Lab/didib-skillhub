@@ -18,7 +18,6 @@
         "SKILL.md",
         "references/examples.md",
         "references/spec.md",
-        "scripts/__pycache__/commit_lint.cpython-312.pyc",
         "scripts/commit_lint.py"
       ]
     },
