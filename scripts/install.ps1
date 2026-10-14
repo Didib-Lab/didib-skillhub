@@ -103,7 +103,10 @@ function Install-One {
 
     try {
         $zip = Join-Path $tmp 'repo.zip'
-        $url = "https://codeload.github.com/$RepoSlug/zip/refs/heads/$Ref.zip"
+        # codeload takes the ref as a path suffix: /zip/refs/heads/<branch>.
+        # Appending ".zip" makes GitHub look for a branch literally named
+        # "<branch>.zip" and the request 404s.
+        $url = "https://codeload.github.com/$RepoSlug/zip/refs/heads/$Ref"
         Write-Info "fetching $RepoSlug@$Ref ..."
         try {
             Invoke-WebRequest -Uri $url -OutFile $zip -Headers @{ 'User-Agent' = 'ddb-skillhub' }

@@ -76,3 +76,14 @@ jobs:
             test -f "$dest/$name/SKILL.md"
           done
           echo "installed $(ls -1 "$dest" | wc -l) skill(s) into $dest"
+
+  installer-windows:
+    name: Smoke-test the Windows installer
+    runs-on: windows-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Run the installer self-test
+        shell: pwsh
+        run: ./tools/selftest_installer.ps1
