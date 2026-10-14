@@ -1,27 +1,31 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-    Test the Windows installer without touching the network or the real
-    ~/.agents/skills directory.
+    Test the Windows installer over real HTTP without touching GitHub or the
+    real ~/.agents/skills directory.
 
 .DESCRIPTION
-    Builds a fake release archive whose layout matches codeload.github.com
-    exactly, serves it from a local directory, and drives scripts/install.ps1
-    against it.
+    Serves a fake release archive from a loopback HTTP listener whose URL shape
+    matches codeload.github.com exactly, then drives scripts/install.ps1 against
+    it.
 
-    The archive layout matters. codeload serves a branch archive at
+    Two details matter, and both were learned the hard way:
 
-        https://codeload.github.com/<owner>/<repo>/zip/refs/heads/<ref>
+    * The URL shape. codeload serves a branch archive at
+      /<owner>/<repo>/zip/refs/heads/<ref> with no file extension, and the
+      archive holds a single top-level directory named "<ref>". An earlier
+      installer appended ".zip" to that URL; a fixture that had been built to
+      match the bug hid it. The assertions below pin the shape of the URL the
+      installer builds, so a wrong assumption cannot pass.
 
-    with no file extension, and the archive contains a single top-level directory
-    named "<ref>". An earlier version of the installer appended ".zip" to that
-    URL and this harness failed to catch it because the fixture was built to
-    match the bug instead of the service. The fixture below is deliberately
-    derived from the real URL shape, so it cannot validate a wrong assumption.
+    * Real HTTP. Reaching the fixture through file:// works in Windows
+      PowerShell but throws "The 'file' scheme is not supported" in PowerShell 7,
+      which is what GitHub Actions runs. A loopback listener behaves identically
+      on both, so the test is not silently version-specific.
 
 .PARAMETER Ref
-    Ref name to simulate. Defaults to a random one so a cached archive can never
-    be mistaken for a fresh download.
+    Ref name to simulate. Defaults to a random one, so a cached archive can
+    never be mistaken for a fresh download.
 
 .EXAMPLE
     ./tools/selftest_installer.ps1
@@ -47,7 +51,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $installer = Join-Path $repoRoot 'scripts\install.ps1'
 if (-not (Test-Path $installer)) { Write-Error "cannot find $installer"; exit 1 }
 
-$sandbox = Join-Path $env:LOCALAPPDATA ('installer-selftest-' + [guid]::NewGuid().ToString('N'))
+$sandbox = Join-Path ([System.IO.Path]::GetTempPath()) ('installer-selftest-' + [guid]::NewGuid().ToString('N'))
 $results = @()
 
 function Assert {
@@ -56,19 +60,18 @@ function Assert {
     else { Write-Bad "$Label $Detail"; $script:results += $false }
 }
 
+$runspace = $null
+$powerShell = $null
+$listener = $null
+
 try {
     # ----------------------------------------------------------------------
-    # Build an archive shaped exactly like codeload's, at the exact path the
-    # installer derives from its URL template.
+    # Build an archive shaped exactly like codeload's
     # ----------------------------------------------------------------------
 
     Write-Step "Building a fake release archive for ref '$Ref'"
+    New-Item -ItemType Directory -Force -Path $sandbox | Out-Null
 
-    $served = Join-Path $sandbox 'served\testowner\testrepo\zip\refs\heads'
-    New-Item -ItemType Directory -Force -Path $served | Out-Null
-
-    # Archive contents: a single top-level directory named after the ref, with
-    # forward-slash entry names, which is exactly what codeload produces.
     $stage = Join-Path $sandbox "stage\$Ref"
     Copy-Item -Path (Join-Path $repoRoot 'skills') -Destination (Join-Path $stage 'skills') -Recurse -Force
     Get-ChildItem -Path $stage -Recurse -Directory -Filter '__pycache__' |
@@ -76,49 +79,112 @@ try {
 
     Add-Type -AssemblyName System.IO.Compression
     Add-Type -AssemblyName System.IO.Compression.FileSystem
-    $archive = Join-Path $served $Ref
-    Remove-Item $archive, "$archive.zip" -Force -ErrorAction SilentlyContinue
 
-    # ZipFile::CreateFromDirectory is deliberately avoided: it omits the root
-    # directory name (so no "<ref>/" prefix appears) and writes entries with
-    # backslashes on Windows. Either difference would let a broken installer
-    # pass. Entries are written by hand instead.
-    $stream = [System.IO.File]::Open($archive, [System.IO.FileMode]::CreateNew)
+    $archive = Join-Path $sandbox $Ref
+    # Entries are written by hand rather than with CreateFromDirectory, which
+    # omits the root directory name and uses backslashes on Windows.
+    $fileStream = [System.IO.File]::Open($archive, [System.IO.FileMode]::CreateNew)
     try {
         $zip = [System.IO.Compression.ZipArchive]::new(
-            $stream, [System.IO.Compression.ZipArchiveMode]::Create, $false)
+            $fileStream, [System.IO.Compression.ZipArchiveMode]::Create, $false)
         try {
             $stageFull = (Resolve-Path $stage).Path
             foreach ($file in Get-ChildItem -Path $stage -Recurse -File) {
                 $relative = $file.FullName.Substring($stageFull.Length).TrimStart('\', '/')
-                $entryName = "$Ref/" + ($relative -replace '\\', '/')
-                $entry = $zip.CreateEntry($entryName, [System.IO.Compression.CompressionLevel]::Optimal)
+                $entry = $zip.CreateEntry("$Ref/" + ($relative -replace '\\', '/'),
+                    [System.IO.Compression.CompressionLevel]::Optimal)
                 $entryStream = $entry.Open()
                 try {
-                    $fileStream = [System.IO.File]::OpenRead($file.FullName)
-                    try { $fileStream.CopyTo($entryStream) } finally { $fileStream.Dispose() }
+                    $source = [System.IO.File]::OpenRead($file.FullName)
+                    try { $source.CopyTo($entryStream) } finally { $source.Dispose() }
                 } finally { $entryStream.Dispose() }
             }
         } finally { $zip.Dispose() }
-    } finally { $stream.Dispose() }
+    } finally { $fileStream.Dispose() }
 
-    $zip = [System.IO.Compression.ZipFile]::OpenRead($archive)
-    try {
-        $entries = @($zip.Entries | ForEach-Object { $_.FullName })
-    } finally {
-        $zip.Dispose()
-    }
+    $readBack = [System.IO.Compression.ZipFile]::OpenRead($archive)
+    try { $entries = @($readBack.Entries | ForEach-Object { $_.FullName }) }
+    finally { $readBack.Dispose() }
 
     $topLevels = @($entries | ForEach-Object { ($_ -split '/')[0] } | Select-Object -Unique)
     Assert 'fixture archive has exactly one top-level directory' ($topLevels.Count -eq 1) "got: $($topLevels -join ', ')"
     Assert 'the top-level directory is named after the ref' ($topLevels[0] -eq $Ref) "got: $($topLevels[0])"
     Assert 'the archive carries the skill files' (
-        @($entries | Where-Object { $_ -like "$Ref/skills/*/SKILL.md" }).Count -ge 2
-    )
+        @($entries | Where-Object { $_ -like "$Ref/skills/*/SKILL.md" }).Count -ge 2)
     Assert 'entry names use forward slashes' (-not ($entries -match '\\'))
 
     # ----------------------------------------------------------------------
-    # Point the installer at the local archive.
+    # Serve it over loopback HTTP, at codeload's path shape
+    # ----------------------------------------------------------------------
+
+    $port = Get-Random -Minimum 45000 -Maximum 46000
+    $basePath = '/testowner/testrepo/zip/refs/heads'
+
+    $serverSource = @'
+param([int]$Port, [string]$Archive, [string]$BasePath, [hashtable]$Flags)
+
+$listener = [System.Net.HttpListener]::new()
+$listener.Prefixes.Add("http://127.0.0.1:$Port/")
+try { $listener.Start() } catch { $Flags.Error = $_.Exception.Message; return }
+$Flags.Ready = $true
+
+while (-not $Flags.Stop) {
+    $context = $null
+    try { $context = $listener.GetContext() } catch { break }
+
+    $path = $context.Request.Url.AbsolutePath
+    $Flags.Requests.Enqueue($path)
+
+    if ($path -eq $BasePath -or $path.StartsWith("$BasePath/")) {
+        $bytes = [System.IO.File]::ReadAllBytes($Archive)
+        $context.Response.StatusCode = 200
+        $context.Response.ContentType = 'application/zip'
+        $context.Response.ContentLength64 = $bytes.Length
+        $context.Response.OutputStream.Write($bytes, 0, $bytes.Length)
+    } else {
+        $context.Response.StatusCode = 404
+        $payload = [System.Text.Encoding]::UTF8.GetBytes('not found')
+        $context.Response.OutputStream.Write($payload, 0, $payload.Length)
+    }
+    $context.Response.OutputStream.Close()
+}
+
+$listener.Stop()
+'@
+
+    $flags = @{
+        Ready    = $false
+        Stop     = $false
+        Error    = $null
+        Requests = [System.Collections.Concurrent.ConcurrentQueue[string]]::new()
+    }
+
+    $runspace = [runspacefactory]::CreateRunspace()
+    $runspace.Open()
+    $powerShell = [powershell]::Create()
+    $powerShell.Runspace = $runspace
+    [void]$powerShell.AddScript($serverSource).AddArgument($port).AddArgument($archive).AddArgument($basePath).AddArgument($flags)
+    $handle = $powerShell.BeginInvoke()
+
+    Write-Step "Serving the archive on http://127.0.0.1:$port"
+    for ($attempt = 0; $attempt -lt 100; $attempt++) {
+        Start-Sleep -Milliseconds 50
+        if ($flags.Ready -or $flags.Error -or $handle.IsCompleted) { break }
+    }
+    if ($flags.Error) { Write-Error "listener failed: $($flags.Error)"; exit 1 }
+    Assert 'the fixture server is listening' $flags.Ready
+
+    # Prove the server answers at the exact path the installer will request.
+    $probeUrl = "http://127.0.0.1:$port$basePath/$Ref"
+    try {
+        $probe = Invoke-WebRequest -Uri $probeUrl -UseBasicParsing -TimeoutSec 20
+        Assert 'the archive is served at codeload''s path shape' ($probe.StatusCode -eq 200 -and $probe.RawContentLength -gt 0) "status $($probe.StatusCode)"
+    } catch {
+        Assert 'the archive is served at codeload''s path shape' $false $_.Exception.Message
+    }
+
+    # ----------------------------------------------------------------------
+    # Point the installer at the fixture server
     # ----------------------------------------------------------------------
 
     $dest = Join-Path $sandbox 'installed'
@@ -128,23 +194,18 @@ try {
 
     $patched = (Get-Content $installer -Raw).Replace(
         'https://codeload.github.com',
-        'file:///' + (($sandbox + '\served') -replace '\\', '/')
+        "http://127.0.0.1:$port"
     )
     $driver = Join-Path $sandbox 'install.ps1'
     [System.IO.File]::WriteAllText($driver, $patched)
 
-    # ----------------------------------------------------------------------
-    # The URL the installer builds must match where the fixture lives.
-    # ----------------------------------------------------------------------
-
     Write-Step 'Checking the download URL shape'
-    $urlLine = (Get-Content $driver | Select-String -Pattern 'codeload|served/').Line -join ' '
     Assert 'installer builds a URL ending in the bare ref' (
         $patched -match '\$url\s*=\s*"[^"]*\$RepoSlug/zip/refs/heads/\$Ref"'
-    ) -Detail "URL template: $urlLine"
+    )
 
     # ----------------------------------------------------------------------
-    # Drive the installer.
+    # Drive the installer
     # ----------------------------------------------------------------------
 
     Write-Step 'Installing a skill with a single file'
@@ -153,11 +214,9 @@ try {
 
     Write-Step 'Installing a skill with nested directories'
     & $driver install conventional-commits *> $null
-    $nested = Join-Path $dest 'conventional-commits\scripts\commit_lint.py'
-    Assert 'nested scripts/ files are copied' (Test-Path $nested)
-    Assert 'nested references/ files are copied' (
-        Test-Path (Join-Path $dest 'conventional-commits\references\spec.md')
-    )
+    Assert 'nested scripts/ files are copied' (Test-Path (Join-Path $dest 'conventional-commits\scripts\commit_lint.py'))
+    Assert 'nested references/ files are copied' (Test-Path (Join-Path $dest 'conventional-commits\references\spec.md'))
+    Assert 'no build output is copied' (-not (Test-Path (Join-Path $dest 'conventional-commits\scripts\__pycache__')))
 
     Write-Step 'Refusing invalid input'
     & $driver install hello-world *> $null
@@ -178,12 +237,20 @@ try {
     Assert 'uninstall leaves other skills alone' (Test-Path (Join-Path $dest 'conventional-commits'))
 
     Write-Step 'Dot-sourcing must not kill the caller'
-    $before = $true
     . $driver doctor *> $null
-    Assert 'the caller survives dot-sourcing' $before
+    Assert 'the caller survives dot-sourcing' $true
+
+    Assert 'every download hit the expected path' (
+        @($flags.Requests | Where-Object { $_ -notlike "$basePath/*" }).Count -eq 0
+    ) "unexpected: $(@($flags.Requests | Where-Object { $_ -notlike "$basePath/*" }) -join ', ')"
 }
 finally {
+    if ($flags) { $flags.Stop = $true }
+    if ($powerShell) { try { $powerShell.Stop() } catch { }; try { $powerShell.Dispose() } catch { } }
+    if ($runspace) { try { $runspace.Close() } catch { } }
+
     Remove-Item Env:DDB_SKILLHUB_DEST, Env:DDB_SKILLHUB_REF, Env:DDB_SKILLHUB_REPO -ErrorAction SilentlyContinue
+
     if ($KeepTemp) { Write-Host "`nkept: $sandbox" }
     else { Remove-Item -Recurse -Force $sandbox -ErrorAction SilentlyContinue }
 }
